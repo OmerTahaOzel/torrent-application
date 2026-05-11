@@ -1,23 +1,21 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading.Tasks;
 using Torrent.Core;
+using Torrent.Models;
 
 namespace Torrent.Network
 {
     public class TcpServer
     {
-        private TcpListener _listener;
+        private TcpListener? _listener;
         private bool _isRunning;
-        private readonly P2PMessageQueue _messageQueue;
         private readonly TorrentEngine _engine;
 
-        // Sunucu kalkarken patronu alıyor ve işçiye devrediyor
         public TcpServer(TorrentEngine engine)
         {
             _engine = engine;
-            _messageQueue = new P2PMessageQueue(_engine);
         }
 
         public void Start(int port)
@@ -27,8 +25,7 @@ namespace Torrent.Network
             _isRunning = true;
             Console.WriteLine($"[BİLGİ] P2P Sunucusu {port} portunda başlatıldı.");
 
-            Task.Run(() => AcceptClientsAsync());
-            _messageQueue.StartProcessing();
+            Task.Run(AcceptClientsAsync);
         }
 
         private async Task AcceptClientsAsync()
@@ -37,17 +34,19 @@ namespace Torrent.Network
             {
                 try
                 {
-                    TcpClient client = await _listener.AcceptTcpClientAsync();
-                    string remoteIp = client.Client.RemoteEndPoint.ToString();
+                    if (_listener == null)
+                        return;
 
-                    // Patronun defterine bu adamı kaydediyoruz
+                    TcpClient client = await _listener.AcceptTcpClientAsync();
+                    string remoteIp = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
                     _engine.AddPeer(remoteIp, port: 0);
 
                     _ = Task.Run(() => HandleClientAsync(client, remoteIp));
                 }
                 catch (Exception ex)
                 {
-                    if (_isRunning) Console.WriteLine($"[HATA] Dinleme hatası: {ex.Message}");
+                    if (_isRunning)
+                        Console.WriteLine($"[HATA] Dinleme hatası: {ex.Message}");
                 }
             }
         }
@@ -59,32 +58,46 @@ namespace Torrent.Network
                 using (client)
                 using (NetworkStream stream = client.GetStream())
                 {
-                    byte[] buffer = new byte[1048576 + 1024];
-
-                    // İŞTE EKSİK OLAN KISIM BUYDU AMK! 
-                    // Bağlantı açık olduğu sürece fedai kapıda sürekli mal beklemesi lazım
-                    while (client.Connected)
+                    while (_isRunning && client.Connected)
                     {
-                        // stream.ReadAsync karşıdan mesaj gelene kadar burada pusuya yatar
-                        int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                        P2PMessage? message = await NetworkMessageIO.ReadMessageAsync(stream);
+                        if (message == null)
+                            break;
 
-                        // Eğer 0 byte okuduysa karşı taraf (Client) dükkanı kapatıp gitmiştir
-                        if (bytesRead == 0) break;
+                        message.SenderIp = remoteIp;
+                        _engine.ProcessMessage(message, remoteIp);
 
-                        byte[] receivedData = new byte[bytesRead];
-                        Array.Copy(buffer, receivedData, bytesRead);
-
-                        Torrent.Models.P2PMessage receivedMessage = Torrent.Models.MessageSerializer.Deserialize(receivedData);
-                        receivedMessage.SenderIp = remoteIp;
-
-                        // Paketi kuyruğa fırlat
-                        _messageQueue.EnqueueMessage(receivedMessage);
+                        if (message.Type == MessageType.Handshake || message.Type == MessageType.Metadata)
+                        {
+                            await SendSyncMessagesAsync(stream);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[HATA] {remoteIp} ile bağlantı koptu: {ex.Message}");
+                Console.WriteLine($"[HATA] {remoteIp} bağlantı hatası: {ex.Message}");
+            }
+        }
+
+        private async Task SendSyncMessagesAsync(NetworkStream stream)
+        {
+            await NetworkMessageIO.WriteMessageAsync(stream, _engine.CreateBitfieldMessage());
+
+            FileMetadata? metadata = _engine.ActiveMetadata;
+            if (metadata == null)
+                return;
+
+            foreach (int pieceIndex in _engine.GetMissingPieceIndexes())
+            {
+                P2PMessage request = new P2PMessage
+                {
+                    Type = MessageType.RequestPiece,
+                    PieceIndex = pieceIndex,
+                    Payload = Array.Empty<byte>()
+                };
+
+                await NetworkMessageIO.WriteMessageAsync(stream, request);
             }
         }
 
@@ -92,7 +105,6 @@ namespace Torrent.Network
         {
             _isRunning = false;
             _listener?.Stop();
-            _messageQueue.Stop();
         }
     }
 }

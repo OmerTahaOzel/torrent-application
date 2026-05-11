@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Torrent.Core;
@@ -8,27 +8,25 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        Console.Title = "P2P Torrent Motoru - Ağ Üzerinden Canlı Test";
-        Console.WriteLine("=== BÜYÜK YARRAKLI KUMANDANIMIN P2P AĞI ===\n"); // Hocaya göstermeden önce burayı silersin amk :D
+        Console.Title = "P2P Torrent Motoru - Merkle Tree";
+        Console.WriteLine("=== P2P Torrent Demo (Merkle Doğrulama) ===\n");
 
-        // 1 parçalık motorumuzu hazırlıyoruz
         TorrentEngine engine = new TorrentEngine(totalPieces: 1);
 
-        Console.WriteLine("Lütfen bir rol seçin kumandanım:");
-        Console.WriteLine("1 - Mekanı Aç ve Bekle (Dosyayı alacak kişi)");
-        Console.WriteLine("2 - Arkadaşına Bağlan ve Dosyayı Fırlat (Gönderen kişi)");
+        Console.WriteLine("Lütfen bir rol seçin:");
+        Console.WriteLine("1 - Alıcı (Sunucu)");
+        Console.WriteLine("2 - Gönderici (İstemci)");
         Console.Write("\nSeçiminiz (1 veya 2): ");
 
-        string secim = Console.ReadLine();
+        string? secim = Console.ReadLine();
 
         if (secim == "1")
         {
-            // === ALICI MODU (SERVER) ===
             TcpServer server = new TcpServer(engine);
             server.Start(8080);
 
-            Console.WriteLine("\n[SİSTEM] Mekan açıldı! Arkadaşına IP adresini ver ve sana dosya atmasını bekle...");
-            Console.WriteLine("[SİSTEM] Dosya geldiğinde 'Karabuk_P2P_Indirilen.txt' adıyla klasöre düşecek.");
+            Console.WriteLine("\n[SİSTEM] Sunucu açıldı. IP adresini paylaş ve dosya bekle.");
+            Console.WriteLine("[SİSTEM] Doğrulanan parçalar 'Karabuk_P2P_Indirilen.txt' dosyasına yazılacak.");
             Console.WriteLine("Çıkmak için 'Enter' tuşuna basın.");
             Console.ReadLine();
 
@@ -36,26 +34,23 @@ class Program
         }
         else if (secim == "2")
         {
-            // === GÖNDERİCİ MODU (CLIENT) ===
-            Console.Write("\nBağlanılacak Arkadaşının IP Adresi Nedir? (Örn: 192.168.1.15): ");
-            string hedefIp = Console.ReadLine();
+            Console.Write("\nBağlanılacak alıcının IP adresi nedir? (Örn: 192.168.1.15): ");
+            string? hedefIp = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(hedefIp))
+            {
+                Console.WriteLine("[HATA] IP adresi boş olamaz.");
+                return;
+            }
 
-            // Gönderilecek test dosyasını yaratıyoruz
             string sourceFile = "kaynak_dosyamiz.txt";
-            File.WriteAllText(sourceFile, "Büyük kumandan Ömer'in Karabük P2P ağı üzerinden yolladığı efsanevi dosyadır. Hedefe başarıyla ulaştı!");
+            File.WriteAllText(sourceFile, "Bu dosya P2P ağında Merkle tree doğrulaması ile gönderildi.");
             Console.WriteLine($"\n[SİSTEM] Gönderilecek dosya hazırlandı: {sourceFile}");
 
             PeerClient client = new PeerClient();
+            Console.WriteLine($"[SİSTEM] {hedefIp} adresine bağlanılıyor...");
+            await client.ConnectToPeerAsync(hedefIp, 8080, sourceFile);
 
-            Console.WriteLine($"[SİSTEM] {hedefIp} adresine taarruz başlatılıyor...");
-            await client.ConnectToPeerAsync(hedefIp, 8080);
-
-            await Task.Delay(500); // Tokalaşma için ufak mola
-
-            Console.WriteLine("\n[SİSTEM] Dosya bombası fırlatılıyor!");
-            await client.SendFilePieceAsync(sourceFile, pieceIndex: 0);
-
-            Console.WriteLine("\n[SİSTEM] Dosya başarıyla yollandı! Arkadaşın klasörünü kontrol etsin.");
+            Console.WriteLine("\n[SİSTEM] İstek geldikçe parçalar Merkle proof ile otomatik gönderilecek.");
             Console.WriteLine("Çıkmak için 'Enter' tuşuna basın.");
             Console.ReadLine();
 
@@ -63,7 +58,7 @@ class Program
         }
         else
         {
-            Console.WriteLine("Yanlış tuşa bastın amk, baştan aç programı.");
+            Console.WriteLine("Geçersiz seçim. Programı yeniden başlatın.");
         }
     }
 }

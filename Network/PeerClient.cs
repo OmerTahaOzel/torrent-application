@@ -1,28 +1,42 @@
-﻿using System;
+using System;
+using System.Linq;
 using System.Net.Sockets;
+using System.Text.Json;
 using System.Threading.Tasks;
+using Torrent.Core;
+using Torrent.IO;
 using Torrent.Models;
-using Torrent.IO; // FileManager'ı kullanmak için ekledik
 
 namespace Torrent.Network
 {
     public class PeerClient
     {
-        private TcpClient _client;
-        private NetworkStream _stream;
+        private TcpClient? _client;
+        private NetworkStream? _stream;
+        private string? _sourceFilePath;
+        private FileMetadata? _metadata;
+        private MerkleTree? _merkleTree;
+        private bool _isListening;
 
-        public async Task ConnectToPeerAsync(string ipAddress, int port)
+        public async Task ConnectToPeerAsync(string ipAddress, int port, string? sourceFilePath = null)
         {
             try
             {
                 _client = new TcpClient();
                 await _client.ConnectAsync(ipAddress, port);
                 _stream = _client.GetStream();
-
                 Console.WriteLine($"[BAŞARILI] {ipAddress}:{port} ile bağlantı kuruldu.");
 
-                // Bağlanır bağlanmaz racon gereği selamı çakıyoruz
-                await SendHandshakeAsync();
+                _sourceFilePath = sourceFilePath;
+                if (!string.IsNullOrWhiteSpace(_sourceFilePath))
+                {
+                    PrepareSeederData(_sourceFilePath);
+                    await SendMetadataAsync();
+                    await SendBitfieldAsync();
+                }
+
+                _isListening = true;
+                _ = Task.Run(ListenAsync);
             }
             catch (Exception ex)
             {
@@ -30,53 +44,143 @@ namespace Torrent.Network
             }
         }
 
-        private async Task SendHandshakeAsync()
-        {
-            P2PMessage handshakeMsg = new P2PMessage
-            {
-                Type = MessageType.Handshake,
-                PieceIndex = -1,
-                Payload = Array.Empty<byte>()
-            };
-
-            byte[] dataToSend = MessageSerializer.Serialize(handshakeMsg);
-            await _stream.WriteAsync(dataToSend, 0, dataToSend.Length);
-            Console.WriteLine("[BİLGİ] Handshake (Tokalaşma) gönderildi.");
-        }
-
-        // İŞTE YENİ SİLAHIMIZ: Diskten dosyayı okuyup karşıya fırlatan metot
         public async Task SendFilePieceAsync(string filePath, int pieceIndex)
         {
-            try
+            _sourceFilePath = filePath;
+            if (_metadata == null || _merkleTree == null)
             {
-                // 1. Amele FileManager'ı çağır ve dosyayı okut
-                FileManager fm = new FileManager();
-                byte[] pieceData = fm.ReadPiece(filePath, pieceIndex);
-
-                // 2. Okunan veriyi P2P mesaj paketinin içine koy
-                P2PMessage fileMessage = new P2PMessage
-                {
-                    Type = MessageType.SendPiece,
-                    PieceIndex = pieceIndex,
-                    Payload = pieceData
-                };
-
-                // 3. Paketi kabloya sığacak formata çevir ve fırlat
-                byte[] dataToSend = MessageSerializer.Serialize(fileMessage);
-                await _stream.WriteAsync(dataToSend, 0, dataToSend.Length);
-
-                Console.WriteLine($"[BİLGİ] Dosyanın {pieceIndex}. parçası ağ üzerinden fırlatıldı!");
+                PrepareSeederData(filePath);
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[HATA] Dosya gönderilirken patladık: {ex.Message}");
-            }
+
+            await SendPieceAsync(pieceIndex);
         }
 
         public void Disconnect()
         {
+            _isListening = false;
             _stream?.Close();
             _client?.Close();
+        }
+
+        private async Task ListenAsync()
+        {
+            if (_stream == null)
+                return;
+
+            try
+            {
+                while (_isListening && _client?.Connected == true)
+                {
+                    P2PMessage? message = await NetworkMessageIO.ReadMessageAsync(_stream);
+                    if (message == null)
+                        break;
+
+                    await HandleIncomingMessageAsync(message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[HATA] Dinleme döngüsü hatası: {ex.Message}");
+            }
+        }
+
+        private async Task HandleIncomingMessageAsync(P2PMessage message)
+        {
+            switch (message.Type)
+            {
+                case MessageType.RequestPiece:
+                    await SendPieceAsync(message.PieceIndex);
+                    break;
+
+                case MessageType.Bitfield:
+                    Console.WriteLine("[BİLGİ] Alıcıdan bitfield alındı.");
+                    break;
+
+                default:
+                    Console.WriteLine($"[BİLGİ] İstemciye mesaj geldi: {message.Type}");
+                    break;
+            }
+        }
+
+        private void PrepareSeederData(string sourceFilePath)
+        {
+            _metadata = MerkleTree.BuildMetadata(sourceFilePath, FileManager.PieceSize);
+            _merkleTree = MerkleTree.BuildFromFile(sourceFilePath, _metadata.PieceSize);
+            Console.WriteLine($"[BİLGİ] Seeder metadata hazır. Parça={_metadata.TotalPieces}, Root={_metadata.MerkleRootHex[..12]}...");
+        }
+
+        private async Task SendMetadataAsync()
+        {
+            if (_stream == null || _metadata == null)
+                return;
+
+            P2PMessage metadataMessage = new P2PMessage
+            {
+                Type = MessageType.Metadata,
+                PieceIndex = -1,
+                Payload = JsonSerializer.SerializeToUtf8Bytes(_metadata)
+            };
+
+            await NetworkMessageIO.WriteMessageAsync(_stream, metadataMessage);
+            Console.WriteLine("[BİLGİ] Metadata gönderildi.");
+        }
+
+        private async Task SendBitfieldAsync()
+        {
+            if (_stream == null || _metadata == null)
+                return;
+
+            byte[] bitfield = Enumerable.Repeat((byte)1, _metadata.TotalPieces).ToArray();
+            P2PMessage bitfieldMessage = new P2PMessage
+            {
+                Type = MessageType.Bitfield,
+                PieceIndex = -1,
+                Payload = bitfield
+            };
+
+            await NetworkMessageIO.WriteMessageAsync(_stream, bitfieldMessage);
+            Console.WriteLine("[BİLGİ] Seeder bitfield gönderildi.");
+        }
+
+        private async Task SendPieceAsync(int pieceIndex)
+        {
+            if (_stream == null || _metadata == null || _merkleTree == null || string.IsNullOrWhiteSpace(_sourceFilePath))
+            {
+                Console.WriteLine("[HATA] Parça gönderimi için seeder hazırlığı eksik.");
+                return;
+            }
+
+            if (pieceIndex < 0 || pieceIndex >= _metadata.TotalPieces)
+            {
+                Console.WriteLine($"[HATA] Geçersiz parça indexi: {pieceIndex}");
+                return;
+            }
+
+            try
+            {
+                FileManager fileManager = new FileManager();
+                byte[] pieceData = fileManager.ReadPiece(_sourceFilePath, pieceIndex, _metadata.PieceSize);
+
+                PieceTransferPayload payload = new PieceTransferPayload
+                {
+                    Data = pieceData,
+                    MerkleProofHex = _merkleTree.GetProofHex(pieceIndex)
+                };
+
+                P2PMessage message = new P2PMessage
+                {
+                    Type = MessageType.SendPiece,
+                    PieceIndex = pieceIndex,
+                    Payload = JsonSerializer.SerializeToUtf8Bytes(payload)
+                };
+
+                await NetworkMessageIO.WriteMessageAsync(_stream, message);
+                Console.WriteLine($"[BİLGİ] {pieceIndex}. parça + Merkle proof gönderildi.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[HATA] Parça gönderilemedi: {ex.Message}");
+            }
         }
     }
 }

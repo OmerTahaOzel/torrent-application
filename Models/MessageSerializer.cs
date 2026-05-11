@@ -47,6 +47,10 @@ namespace Torrent.Models
                 {
                     message.Payload = reader.ReadBytes(payloadLength);
                 }
+                else
+                {
+                    message.Payload = Array.Empty<byte>();
+                }
 
                 return message;
             }

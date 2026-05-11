@@ -9,6 +9,7 @@ namespace Torrent.Models
 
         // Elemanın elindeki dosya parçalarının haritası (True: Var, False: Yok)
         public bool[] AvailablePieces { get; set; }
+        public string MerkleRootHex { get; set; } = string.Empty;
 
         public Peer(string ipAddress, int port, int totalPiecesInFile)
         {
@@ -26,6 +27,15 @@ namespace Torrent.Models
             {
                 AvailablePieces[pieceIndex] = true;
                 Console.WriteLine($"[BİLGİ] {IpAddress} adlı eşte {pieceIndex}. parça mevcut olarak işaretlendi.");
+            }
+        }
+
+        public void UpdateBitfield(bool[] bitfield)
+        {
+            int length = Math.Min(AvailablePieces.Length, bitfield.Length);
+            for (int i = 0; i < length; i++)
+            {
+                AvailablePieces[i] = bitfield[i];
             }
         }
 

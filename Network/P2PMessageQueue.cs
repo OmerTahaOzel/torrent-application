@@ -35,9 +35,8 @@ namespace Torrent.Network
         {
             while (_isProcessing)
             {
-                if (_queue.TryDequeue(out P2PMessage message))
+                if (_queue.TryDequeue(out P2PMessage? message) && message != null)
                 {
-                    // İŞTE BURASI AMK! İşçi paketi aldı, direkt patronun masasına fırlatıyor.
                     _engine.ProcessMessage(message, message.SenderIp);
 
                     await Task.Delay(10);
