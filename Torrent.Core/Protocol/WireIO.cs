@@ -10,7 +10,7 @@ namespace Torrent.Core.Protocol;
 public static class WireIO
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
+    //4 byte length prefix + JSON payload
     public static async Task WriteAsync<T>(NetworkStream stream, T message, CancellationToken cancellationToken = default)
     {
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(message, JsonOptions);

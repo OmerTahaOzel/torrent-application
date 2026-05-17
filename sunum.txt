@@ -1,22 +1,11 @@
-﻿SUNUM NOTLARI - SIMPLE TORRENT APP
-
-Bu metin, proje sunumunu adim adim anlatabilmen icin hazirlandi.
-Istersen bunu 10-15 slayta bolup kullanabilirsin.
+﻿
 
 ==================================================
 1) PROJE TANIMI (SLIDE 1)
 ==================================================
 
 Proje adi:
-- Simple Torrent App (WinForms + TCP + Tracker)
-
-Proje amaci:
-- Gercek BitTorrent'in tum ozelliklerini degil, temel mantigini ogretmek.
-- Parcalama, peer discovery, parca dogrulama, paralel indirme ve resume gibi kritik kavramlari gostermek.
-
-Neyi cozuyor?
-- Bir dosyanin tek sunucudan degil, birden fazla peer'den parcali sekilde alinmasi.
-- Butunluk kontrolu ile bozuk veri riskinin azaltilmasi.
+- Torrent Application
 
 Teknik kapsam:
 - Dil/Platform: C# / .NET 8
@@ -37,9 +26,6 @@ Neden bu ayrim secildi?
 - UI degisse bile core mantik bozulmasin.
 - Tracker'i ayri process calistirarak dagitik sistemi basit sekilde simule edelim.
 - Test ve bakimi kolaylastiralim.
-
-Sunum cumlesi onerisi:
-"UI sadece butonlari topluyor; asil torrent motoru Torrent.Core icinde calisiyor."
 
 ==================================================
 3) KULLANICI EKRANI UZERINDEN AKIS (SLIDE 3)
@@ -75,7 +61,6 @@ Seeding baslatinca olanlar:
 3. Parca hashlerinden Merkle tree olusturulur.
 4. Merkle root + parca hashleri metadata'ya yazilir.
 5. .ttmeta dosyasi olusur.
-6. Tracker'a REGISTER gonderilir.
 
 Neden parca hash + Merkle birlikte?
 - Parca hash: tek parcayi dogrular.
@@ -89,16 +74,6 @@ Tracker gorevi:
 - Dosya tasimaz.
 - Sadece "bu infoHash hangi peer'lerde var" bilgisini tutar.
 
-Desteklenen komutlar:
-- REGISTER
-- HEARTBEAT
-- UNREGISTER
-- GET_PEERS
-
-Stale peer temizligi:
-- LastSeenUtc 2 dakikadan eskiyse peer stale sayilir.
-- 30 saniyede bir cleanup dongusu calisir.
-
 Sunumda vurgulanacak nokta:
 "Tracker veri aktarmiyor; sadece adres dagitiyor. Veri P2P akiyor."
 
@@ -111,33 +86,16 @@ Leecher'da Indir deyince:
 2. Tracker'dan peer listesi alinir.
 3. Peer'lere handshake atilir.
 4. Bitfield bilgisi toplanir.
-5. Rarest-first scheduler parca dagitir.
-6. Peer'lerden parcalar paralel cekilir.
-7. Her parca verify edilir.
-8. Dogru parca dosyaya yazilir ve state kaydedilir.
-9. Tum parcalar bitince final Merkle root verify edilir.
+5. Peer'lerden parcalar cekilir.
+6. Her parca verify edilir.
+7. Dogru parca dosyaya yazilir ve state kaydedilir.
+8. Tum parcalar bitince final Merkle root verify edilir.
 
 Hata olursa:
 - Parca basarisizsa yeniden denenecek sekilde queue'ya geri birakilir.
 
 ==================================================
-7) RAREST-FIRST NEDEN VAR? (SLIDE 7)
-==================================================
-
-Rarest-first prensibi:
-- Aglardaki en az bulunan parcayi once indir.
-
-Neden iyi?
-- Parca cesitliligini artirir.
-- Agdaki "nadir parca tikanmasi" riskini azaltir.
-- Cok peer oldugunda daha dengeli dagilim saglar.
-
-Bu projedeki uygulama:
-- Scheduler peer bitfield'lerinden rarity hesabi cikarir.
-- In-flight set ile ayni parcayi cift istemeyi onler.
-
-==================================================
-8) GUVENILIRLIK: RESUME VE CANCELLATION (SLIDE 8)
+7) GUVENILIRLIK: RESUME VE CANCELLATION (SLIDE 7)
 ==================================================
 
 Resume:
@@ -152,7 +110,7 @@ Neden onemli?
 - Demo ve gercek kullanimda veri kaybi/bozukluk riskini dusurur.
 
 ==================================================
-9) PROTOKOL TASARIMI (SLIDE 9)
+8) PROTOKOL TASARIMI (SLIDE 8)
 ==================================================
 
 Wire format:
@@ -170,68 +128,14 @@ Mesaj tipleri:
 - MetadataRequest / MetadataResponse
 - Error
 
-Not:
-- Paket boyutu icin 256MB limit korumasi var.
-
 ==================================================
-10) HEARTBEAT GEREKLI MI? (SLIDE 10)
-==================================================
-
-Egitim projesinde iki bakis:
-
-1) Basitlik odakli:
-- Heartbeat kaldirilabilir.
-- Sadece REGISTER + GET_PEERS ile daha sade tasarim.
-
-2) Gercekcilik odakli:
-- Heartbeat stale peer problemini azaltir.
-- Tracker listesinin guncel kalmasini saglar.
-
-Bu projede secim:
-- Heartbeat var, cunku dagitik sistem davranisini gostermede faydali.
-
-==================================================
-11) DEMO PLANI (SLIDE 11)
-==================================================
-
-Canli demo adimlari:
-1. Tracker'i calistir.
-2. 1. istemciyi ac, Node Baslat, dosya sec, Seeding Baslat.
-3. 2. istemciyi ac, Node Baslat, ayni .ttmeta sec, Indir.
-4. Progress bar ve log uzerinden akisi goster.
-5. Orta noktada uygulamayi kapatip tekrar acarak resume goster.
-
-Demo sirasinda soylenecek kritik cumle:
-"Parca dogrulamasi hash + Merkle proof ile yapiliyor, bu nedenle sadece hiz degil butunluk de hedefleniyor."
-
-==================================================
-12) SINIRLAR VE GELECEK CALISMALAR (SLIDE 12)
-==================================================
-
-Mevcut sinirlar:
-- TCP only
-- NAT traversal/UPnP yok
-- Gercek BitTorrent ozellikleri (DHT/choke/unchoke/bencode) yok
-- Tracker in-memory
-
-Gelistirme fikirleri:
-- TLS veya imza tabanli guvenlik katmani
-- NAT traversal
-- Tracker persistence (DB)
-- Gelismis retry/backoff politikasi
-- Cok daha gelismis peer secim algoritmalari
-
-==================================================
-13) SONUC (SLIDE 13)
+9) SONUC (SLIDE 9)
 ==================================================
 
 Bu proje neyi kanitliyor?
 - Kucuk bir kod tabaniyla P2P dagitim mantigi calisir hale getirilebilir.
 - Dogru dogrulama mekanizmasi (hash + Merkle) olmadan P2P guvenli olmaz.
-- UI/Core/Tracker ayrimi, ogrenci projesinde bile mimari okunabilirligi ciddi artirir.
-
-Kapanis cumlesi onerisi:
-"Bu proje, teorik torrent kavramlarini uygulamada gosteren sade ama teknik olarak tutarli bir referans uygulamadir."
+- UI/Core/Tracker ayrimi, herhangi projede bile mimari okunabilirligi ciddi artirir.
 
 ==================================================
 EK: SUNUMDA GELEBILECEK SORULARA HAZIR CEVAPLAR
