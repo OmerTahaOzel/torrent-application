@@ -305,7 +305,7 @@ public partial class Form1 : Form
         _txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
     }
 
-    private static Label L(string t, int x, int y) => new() { Text = t, Left = x, Top = y, Width = 130 };
+    private static Label L(string t, int x, int y) => new() { Text = t, Left = x, Top = y, AutoSize = true };
     private static TextBox Tb(string t, int x, int y, int w) => new() { Text = t, Left = x, Top = y, Width = w };
 
     private static Button Btn(string t, int x, int y, int w, EventHandler h)
