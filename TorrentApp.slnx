@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Torrent.Core/Torrent.Core.csproj" />
+  <Project Path="torrent application/torrent application.csproj" />
+  <Project Path="Torrent.Tracker/Torrent.Tracker.csproj" />
+</Solution>
